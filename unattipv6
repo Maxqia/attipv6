@@ -1,0 +1,27 @@
+#!/bin/bash
+source attipv6.conf
+
+sudo ip rule del from 192.168.100.10 table foo
+sudo ip rule del to 192.168.100.10 table foo
+sudo ip rule del oif $interface table foo
+sudo ip rule del iif $interface table foo
+
+ip route del 192.168.100.0/24 dev $interface table foo
+ip route del default via 192.168.100.254 table foo
+
+
+LOCALIP="$(ip address show dev $interface scope global | awk '/inet / {split($2,var,"/"); print var[1]}')"
+EXTERNALIP="$(ip address show dev $extint scope global | awk '/inet / {split($2,var,"/"); print var[1]}')"
+
+# Your external IP address as an AT&T specific 6rd prefix.
+V6PREFIX="$(printf '%02X%02X%02X%02X' $(echo $EXTERNALIP | tr '.' ' ') | awk '{print "2602:30" substr($1,1,1) ":" substr($1,2,4) ":" substr($1,6) "0"}')"
+
+# The local address that will wind up assigned to your bridge
+V6LOCAL=$V6PREFIX::1/60
+
+ip addr del $V6LOCAL dev $asnint
+
+ip link del $TUNNEL
+ip link del $interface
+
+exit 0

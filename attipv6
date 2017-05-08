@@ -1,0 +1,51 @@
+#!/bin/bash
+source attipv6.conf
+
+#ip link add link bridge0 mac1 address 92:01:93:78:77:89 type macvlan mode bridge
+#ip link set mac1 up #dhcpcd mac1
+#interface="mac1"
+
+ip link add type veth
+ip link set dev veth1 address 92:01:93:78:77:89
+ip link set veth0 address a6:f9:3d:7b:68:88 master $extint up
+
+ip addr add 192.168.100.10/24 dev $interface
+ip link set $interface up 
+
+# disable reverse filtering and enable arp filtering
+sysctl net.ipv4.ip_forward=1
+sysctl net.ipv4.conf.all.rp_filter=0
+#sysctl net.ipv4.conf.$interface.rp_filter=0
+sysctl net.ipv4.conf.all.arp_filter=1
+
+# seperate routing (all 4 rules needed for arp to work)
+sudo ip rule add from 192.168.100.10 table foo
+sudo ip rule add to 192.168.100.10 table foo
+sudo ip rule add oif $interface table foo
+sudo ip rule add iif $interface table foo
+ip route del 192.168.100.0/24 dev $interface
+ip route add 192.168.100.0/24 dev $interface table foo
+ip route add default via 192.168.100.254 table foo
+
+## ipv6 setup
+#ip tunnel add he-ipv6 mode sit remote 64.62.134.130 local 192.168.100.10 ttl 255
+#ip link set he-ipv6 up
+#ip addr add 2001:470:66:149::2/64 dev he-ipv6
+#ip route add ::/0 dev he-ipv6
+
+# IP addresses
+LOCALIP="$(ip address show dev $interface scope global | awk '/inet / {split($2,var,"/"); print var[1]}')"
+EXTERNALIP="$(ip address show dev $extint scope global | awk '/inet / {split($2,var,"/"); print var[1]}')"
+
+# Your external IP address as an AT&T specific 6rd prefix.
+V6PREFIX="$(printf '%02X%02X%02X%02X' $(echo $EXTERNALIP | tr '.' ' ') | awk '{print "2602:30" substr($1,1,1) ":" substr($1,2,4) ":" substr($1,6) "0"}')"
+
+# The local address that will wind up assigned to your bridge
+V6LOCAL=$V6PREFIX::1/60
+
+ip tunnel add $TUNNEL mode sit remote 12.83.49.81 local $LOCALIP ttl 255
+ip link set $TUNNEL up
+ip addr add $V6LOCAL dev $asnint
+ip route add ::/0 dev $TUNNEL
+
+exit 0
